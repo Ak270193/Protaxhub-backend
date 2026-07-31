@@ -1,28 +1,33 @@
-const nodemailer = require("nodemailer");
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const FROM_EMAIL = process.env.RESEND_FROM || "onboarding@resend.dev";
 
-let transporter = null;
-if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: Number(process.env.SMTP_PORT) === 465,
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-  });
-} else {
-  console.warn("[mailer] SMTP_* env vars not set — emails will not send until configured in .env");
+if (!RESEND_API_KEY) {
+  console.warn("[mailer] RESEND_API_KEY not set — emails will not send until configured in .env");
 }
 
 async function sendNotification(subject, text) {
-  if (!transporter) {
+  if (!RESEND_API_KEY) {
     console.log(`[mailer] (not configured) would have sent: ${subject}\n${text}`);
     return { sent: false };
   }
-  await transporter.sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
-    to: process.env.NOTIFY_EMAIL,
-    subject,
-    text,
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: FROM_EMAIL,
+      to: [process.env.NOTIFY_EMAIL],
+      subject,
+      text,
+    }),
   });
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error("[mailer] Resend error:", errText);
+    return { sent: false };
+  }
   return { sent: true };
 }
 
