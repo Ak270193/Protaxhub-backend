@@ -4,6 +4,18 @@ const { sendNotification } = require("../config/mailer");
 
 const router = express.Router();
 
+function formatPerson(p, label) {
+  let line = `${label}: ${p.name}\n  ${p.tfnAbnType}: ${p.tfnAbn}\n  DOB: ${p.dob}\n  Address: ${p.address}\n  Email: ${p.email}\n  Phone: ${p.phone}\n  BSB: ${p.bsb}  Account: ${p.account}\n  Marital status: ${p.marital}`;
+  if (p.marital === "Married") {
+    line += ` (${p.kids || 0} kids)`;
+  }
+  line += `\n  Residency: ${p.residency}`;
+  if (p.marital === "Married" && p.spouse?.name) {
+    line += `\n  Spouse: ${p.spouse.name}, ${p.spouse.tfnAbnType} ${p.spouse.tfnAbn}, DOB ${p.spouse.dob}, ${p.spouse.address}, ${p.spouse.email}, ${p.spouse.phone}, BSB ${p.spouse.bsb} Acc ${p.spouse.account}, ${p.spouse.residency}`;
+  }
+  return line;
+}
+
 // POST /api/onboarding
 // body: { entityType, entityName, entityAbn, people: [ {role, name, tfnAbnType, tfnAbn, dob, address, email, phone, bsb, account, marital, kids, residency, spouse} ], consent: { agreed, signatureType, signatureValue } }
 router.post("/", async (req, res) => {
@@ -13,6 +25,7 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "entityType and at least one person are required" });
     }
     const primary = people[0];
+    const isEntity = ["Company", "Trust", "Partnership"].includes(entityType);
 
     const { data: client, error: clientError } = await supabase
       .from("clients")
@@ -37,8 +50,8 @@ router.post("/", async (req, res) => {
 
     // Store each person (director/trustee/partner/applicant) and their spouse if present
     const peopleRows = [];
-    people.forEach((p, i) => {
-      const role = people.length > 1 ? (entityType === "company" ? "director" : entityType === "trust" ? "trustee" : "partner") : "applicant";
+    people.forEach((p) => {
+      const role = people.length > 1 ? (entityType === "Company" ? "director" : entityType === "Trust" ? "trustee" : "partner") : "applicant";
       peopleRows.push({
         client_id: client.id,
         role,
@@ -91,9 +104,14 @@ router.post("/", async (req, res) => {
       if (formError) throw formError;
     }
 
+    const peopleLabel = (i) => (people.length > 1 ? `Person ${i + 1}` : "Applicant");
+    const peopleSummary = people.map((p, i) => formatPerson(p, peopleLabel(i))).join("\n\n");
+
+    const entityBlock = isEntity && entityName ? `Entity: ${entityName} (ABN ${entityAbn})\n\n` : "";
+
     await sendNotification(
       `New onboarding: ${primary.name}`,
-      `Business nature: ${entityType}\n${entityName ? `Entity: ${entityName} (ABN ${entityAbn})\n` : ""}Name: ${primary.name}\nEmail: ${primary.email}\nPhone: ${primary.phone}\nResidency: ${primary.residency}\n\nFull record stored with client ID: ${client.id}`
+      `Business nature: ${entityType}\n${entityBlock}${peopleSummary}\n\nFull record stored with client ID: ${client.id}`
     );
 
     res.json({ clientId: client.id });
