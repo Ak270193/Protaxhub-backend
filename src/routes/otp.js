@@ -1,6 +1,6 @@
 const express = require("express");
 const supabase = require("../config/supabase");
-const twilioClient = require("../config/twilio");
+const { sendEmail } = require("../config/mailer");
 
 const router = express.Router();
 
@@ -16,21 +16,22 @@ router.post("/send", async (req, res) => {
     const { phone } = req.body;
     if (!phone) return res.status(400).json({ error: "phone is required" });
 
+    const { data: client } = await supabase.from("clients").select("applicant_email").eq("phone", phone).maybeSingle();
+    if (!client || !client.applicant_email) {
+      return res.status(404).json({ error: "No account found for this phone number yet." });
+    }
+
     const code = generateCode();
     const expiresAt = new Date(Date.now() + CODE_TTL_MINUTES * 60 * 1000).toISOString();
 
     const { error } = await supabase.from("otp_codes").insert({ phone, code, expires_at: expiresAt });
     if (error) throw error;
 
-    if (twilioClient) {
-      await twilioClient.messages.create({
-        to: phone,
-        from: process.env.TWILIO_FROM_NUMBER,
-        body: `Your Pro Tax Hub login code is ${code}. It expires in ${CODE_TTL_MINUTES} minutes.`,
-      });
-    } else {
-      console.log(`[otp] (Twilio not configured) code for ${phone}: ${code}`);
-    }
+    await sendEmail({
+      to: client.applicant_email,
+      subject: "Your Pro Tax Hub login code",
+      text: `Your login code is ${code}. It expires in ${CODE_TTL_MINUTES} minutes.`,
+    });
 
     res.json({ sent: true });
   } catch (err) {
