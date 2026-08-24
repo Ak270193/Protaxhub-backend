@@ -5,9 +5,9 @@ if (!RESEND_API_KEY) {
   console.warn("[mailer] RESEND_API_KEY not set — emails will not send until configured in .env");
 }
 
-async function sendNotification(subject, text) {
+async function sendEmail({ to, subject, text }) {
   if (!RESEND_API_KEY) {
-    console.log(`[mailer] (not configured) would have sent: ${subject}\n${text}`);
+    console.log(`[mailer] (not configured) would have sent to ${to}: ${subject}\n${text}`);
     return { sent: false };
   }
   const res = await fetch("https://api.resend.com/emails", {
@@ -16,12 +16,7 @@ async function sendNotification(subject, text) {
       "Authorization": `Bearer ${RESEND_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      from: FROM_EMAIL,
-      to: [process.env.NOTIFY_EMAIL],
-      subject,
-      text,
-    }),
+    body: JSON.stringify({ from: FROM_EMAIL, to: [to], subject, text }),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -31,4 +26,8 @@ async function sendNotification(subject, text) {
   return { sent: true };
 }
 
-module.exports = { sendNotification };
+async function sendNotification(subject, text) {
+  return sendEmail({ to: process.env.NOTIFY_EMAIL, subject, text });
+}
+
+module.exports = { sendNotification, sendEmail };
